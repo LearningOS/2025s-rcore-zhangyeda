@@ -54,6 +54,7 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+            syscall_times: [0; 500],
         }; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -134,6 +135,20 @@ impl TaskManager {
         } else {
             panic!("All applications completed!");
         }
+    }
+
+    /// 获取当前任务的系统调用次数，claude-3.5-sonnet 帮助实现
+    pub fn get_current_task_syscall_times(&self, syscall_id: usize) -> usize {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].syscall_times[syscall_id]
+    }
+
+    /// 增加当前任务的系统调用次数，claude-3.5-sonnet 帮助实现
+    pub fn increment_syscall_times(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].syscall_times[syscall_id] += 1;
     }
 }
 

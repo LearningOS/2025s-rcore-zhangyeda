@@ -9,6 +9,8 @@ pub struct TaskControlBlock {
     pub task_status: TaskStatus,
     /// The task context
     pub task_cx: TaskContext,
+    /// System call statistics array
+    pub syscall_times: [usize; 500], // 使用500作为系统调用号的上限
 }
 
 /// The status of a task
