@@ -16,6 +16,7 @@ tools/
 pushall.sh
 *.bak
 
-ci-user/
+ci-user/vendor/*
+ci-user/user/vendor/*
 os/vendor/
 user/

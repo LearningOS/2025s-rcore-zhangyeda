@@ -14,6 +14,9 @@ pub struct TaskControlBlock {
     /// Maintain the execution status of the current process
     pub task_status: TaskStatus,
 
+    /// System call statistics array
+    pub syscall_times: [usize; 500], // 使用500作为系统调用号的上限
+
     /// Application address space
     pub memory_set: MemorySet,
 
@@ -63,6 +66,7 @@ impl TaskControlBlock {
             base_size: user_sp,
             heap_bottom: user_sp,
             program_brk: user_sp,
+            syscall_times: [0; 500],
         };
         // prepare TrapContext in user space
         let trap_cx = task_control_block.get_trap_cx();

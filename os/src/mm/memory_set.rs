@@ -58,6 +58,8 @@ impl MemorySet {
         end_va: VirtAddr,
         permission: MapPermission,
     ) {
+        // 直接创建新区域，不考虑合并
+        debug!("insert_framed_area: start_va={:#x}, end_va={:#x}, perm={:?}", start_va.0, end_va.0, permission);
         self.push(
             MapArea::new(start_va, end_va, MapType::Framed, permission),
             None,
@@ -239,7 +241,7 @@ impl MemorySet {
         if let Some(area) = self
             .areas
             .iter_mut()
-            .find(|area| area.vpn_range.get_start() == start.floor())
+            .find(|area| area.get_start() == start.floor())
         {
             area.shrink_to(&mut self.page_table, new_end.ceil());
             true
@@ -254,13 +256,56 @@ impl MemorySet {
         if let Some(area) = self
             .areas
             .iter_mut()
-            .find(|area| area.vpn_range.get_start() == start.floor())
+            .find(|area| area.get_start() == start.floor())
         {
             area.append_to(&mut self.page_table, new_end.ceil());
             true
         } else {
             false
         }
+    }
+    
+    /// Remove a MapArea that includes the specified VPN range
+    pub fn remove_area_with_start_vpn(&mut self, start_vpn: VirtPageNum, end_vpn: VirtPageNum) -> bool {
+        debug!("remove_area_with_start_vpn: processing range start_vpn={:?}, end_vpn={:?}", start_vpn, end_vpn);
+        
+        // 检查范围是否有效
+        if start_vpn.0 >= end_vpn.0 {
+            debug!("remove_area_with_start_vpn: failed - invalid range");
+            return false;
+        }
+        
+        // 打印当前所有内存区域，帮助调试
+        debug!("remove_area_with_start_vpn: current memory areas:");
+        for (i, area) in self.areas.iter().enumerate() {
+            debug!("  area {}: [{:?}, {:?})", i, area.get_start(), area.get_end());
+        }
+        
+        // 查找完全匹配的区域
+        let area_idx = self.areas.iter().position(|area| {
+            area.get_start() == start_vpn && area.get_end() == end_vpn
+        });
+        
+        // 如果找到，移除并取消映射
+        if let Some(idx) = area_idx {
+            debug!("remove_area_with_start_vpn: found matching area idx={}", idx);
+            let mut area = self.areas.remove(idx);
+            // 安全地取消每个页面的映射
+            for vpn in VPNRange::new(start_vpn, end_vpn) {
+                debug!("remove_area_with_start_vpn: unmapping page vpn={:?}", vpn);
+                area.unmap_one(&mut self.page_table, vpn);
+            }
+            debug!("remove_area_with_start_vpn: successfully unmapped area");
+            true
+        } else {
+            debug!("remove_area_with_start_vpn: failed - no exact matching area found");
+            false
+        }
+    }
+
+    /// For debugging: get references to all memory areas
+    pub fn get_areas(&self) -> &Vec<MapArea> {
+        &self.areas
     }
 }
 /// map area structure, controls a contiguous piece of virtual memory
@@ -279,7 +324,20 @@ impl MapArea {
         map_perm: MapPermission,
     ) -> Self {
         let start_vpn: VirtPageNum = start_va.floor();
-        let end_vpn: VirtPageNum = end_va.ceil();
+        
+        // Special handling: if end_va is page-aligned, we don't want to include 
+        // the next page as it's exactly at the page boundary
+        let end_vpn = if end_va.page_offset() == 0 && end_va.0 > start_va.0 {
+            // End address is exactly on page boundary, use it directly
+            end_va.floor()
+        } else {
+            // End address is not on page boundary, ceil it up
+            end_va.ceil()
+        };
+        
+        debug!("MapArea::new: start_va={:#x}, end_va={:#x}, mapped to VPN range [{:?}, {:?})", 
+            start_va.0, end_va.0, start_vpn, end_vpn);
+            
         Self {
             vpn_range: VPNRange::new(start_vpn, end_vpn),
             data_frames: BTreeMap::new(),
@@ -329,9 +387,16 @@ impl MapArea {
     }
     #[allow(unused)]
     pub fn append_to(&mut self, page_table: &mut PageTable, new_end: VirtPageNum) {
+        // 确保new_end大于当前end
+        if new_end <= self.vpn_range.get_end() {
+            return;
+        }
+        
+        // 映射新增加的区域
         for vpn in VPNRange::new(self.vpn_range.get_end(), new_end) {
             self.map_one(page_table, vpn)
         }
+        // 更新vpn_range
         self.vpn_range = VPNRange::new(self.vpn_range.get_start(), new_end);
     }
     /// data: start-aligned but maybe with shorter length
@@ -355,6 +420,15 @@ impl MapArea {
             }
             current_vpn.step();
         }
+    }
+    /// For debugging: get the start of the VPN range
+    pub fn get_start(&self) -> VirtPageNum {
+        self.vpn_range.get_start()
+    }
+    
+    /// For debugging: get the end of the VPN range
+    pub fn get_end(&self) -> VirtPageNum {
+        self.vpn_range.get_end()
     }
 }
 

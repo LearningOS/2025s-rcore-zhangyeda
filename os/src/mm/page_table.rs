@@ -149,7 +149,9 @@ impl PageTable {
     }
     /// get the page table entry from the virtual page number
     pub fn translate(&self, vpn: VirtPageNum) -> Option<PageTableEntry> {
-        self.find_pte(vpn).map(|pte| *pte)
+        self.find_pte(vpn)
+            .map(|pte| *pte)
+            .filter(|pte| pte.is_valid())
     }
     /// get the token from the page table
     pub fn token(&self) -> usize {
